@@ -32,6 +32,10 @@ if __name__ == '__main__':
     parser.add_argument('--output-path', required=True)
     args = parser.parse_args()
 
+    if not os.path.isdir(args.output_prefix):
+        os.makedirs(args.output_prefix)
+
+
     data1 = np.load(args.model1_eval)
     scores1, background_y, dev_y_orig = data1['scores'], data1['background_y'], data1['dev_y_orig']
     data2 = np.load(args.model2_eval)

@@ -58,7 +58,6 @@ if __name__ == '__main__':
     quotes = pd.read_csv(args.input_path)
     if not os.path.isdir(args.output_prefix):
         os.makedirs(args.output_prefix)
-    # quotes = quotes.iloc[:10]
 
     text, keyword = list(quotes['quote']), list(quotes['keyword'])
 
@@ -81,10 +80,24 @@ if __name__ == '__main__':
                 if keyword[j].lower() not in mapping:
                     continue
                 target = mapping[keyword[j].lower()]
-                # pick first occurence of keyword and first subtoken
-                target = target[0][0]
-                embs[j] = output[b_id, target].cpu().numpy()
+                # pick first occurence of keyword
+                target = target[0]
+                if args.aggregation == 'mean':
+                    embs[j] = output[b_id, target].mean(0).cpu().numpy()
+                else:
+                    # use first token
+                    embs[j] = output[b_id, target[0]].cpu().numpy()
                 # register id
                 index.append(j)
 
     np.save(os.path.join(args.output_prefix, args.output_path), {'embs': embs, 'index': index})
+
+# path = '../../Leiden/diachronic-token-embeddings/macberth-small/transformers/ckpt-1000000/'
+# m = AutoModel.from_pretrained(path)
+# tokenizer = AutoTokenizer.from_pretrained(path)
+# quotes = pd.read_csv('../../Leiden/Datasets/OED/data/oed-quotes-subset.tsv', sep='\t')
+# quotes, keywords = list(quotes['quote']), list(quotes['keyword'])
+# tokens = tokenizer(quotes[:10], return_tensors='pt', padding=True)
+# output = m(**tokens, output_hidden_states=True)
+# output = output['hidden_states'][-1]
+# mapping = subwords_to_token_ids(tokens['input_ids'][0], tokenizer)

@@ -7,7 +7,7 @@ import scipy
 import pandas as pd
 
 from sentence_transformers import CrossEncoder
-from captum.attr import IntegratedGradients, LayerIntegratedGradients
+from captum.attr import LayerIntegratedGradients
 from captum.attr import visualization as viz
 
 
@@ -16,12 +16,16 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--periodizer', required=True)
     parser.add_argument('--output', required=True)
-    parser.add_argument('--background', 
-        default=os.path.expanduser(
-            '~/code/downstream/OED/data/periodization/periodization.background.csv'))
+    parser.add_argument('--background',
+        default='./data/sentence-periodization/periodization.background.csv')
+    parser.add_argument('--output-prefix', default='./data/sentence-periodization')
+    parser.add_argument('--output-path', required=True)
     parser.add_argument('--span', default=50, type=int)
     parser.add_argument('--device', default='cpu')
     args = parser.parse_args()
+
+    if not os.path.isdir(args.output_prefix):
+        os.makedirs(args.output_prefix)
 
     periodizer = CrossEncoder(args.periodizer, device=args.device)
     periodizer.model.to(args.device)
@@ -109,6 +113,6 @@ if __name__ == '__main__':
             atts.append(attributions)
 
     import pickle
-    with open(args.output, 'wb') as f:
+    with open(os.path.join(args.output_prefix, args.output_path), 'wb') as f:
         pickle.dump({'viz': vises, 'attributions': atts}, f)
 
