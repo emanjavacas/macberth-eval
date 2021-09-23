@@ -7,14 +7,14 @@ import numpy as np
 from scipy.linalg import norm
 
 
-def get_result(quotes, neighbors, key, top_k=500):
+def get_result(neighbors, labels, top_k=500):
     rows = dict()
-    for item in quotes[key].unique():
-        rows[item] = np.array(quotes[quotes[key]==item]['row'])
+    for item in np.unique(labels):
+        rows[item] = np.where(labels == item)[0]
 
     retrieved, nNeighbors, ap = [], [], []
-    for i in tqdm.tqdm(range(len(quotes))):
-        targets = rows[quotes.iloc[i][key]]
+    for i in tqdm.tqdm(range(len(labels))):
+        targets = rows[labels[i]]
         # average precision
         index = np.isin(neighbors[i, 1:], targets)
         positions, = np.where(index)
@@ -29,8 +29,7 @@ def get_result(quotes, neighbors, key, top_k=500):
     result = pd.DataFrame(
         {'nNeighbors': nNeighbors,
          'retrieved': retrieved,
-         'ap': ap,
-         key: np.array(quotes[key])})
+         'ap': ap})
     result['accuracy'] = result['retrieved'] / np.clip(result['nNeighbors'], 0, top_k)
 
     return result
@@ -128,17 +127,14 @@ if __name__ == '__main__':
     output = index.search(embs, args.top_k)
     similarity, neighbors = output
     # find clustering metric according to: words, senses
-    quotes['row'] = np.arange(len(quotes))
-
     path = '.'.join(os.path.basename(args.embeddings_path).split('.')) + '.{}.csv'
     path = os.path.join(args.output_prefix, path)
-    print(path)
-    get_result(
-        quotes, neighbors, 'lemma', top_k=args.top_k
-    ).to_csv(path.format('lemma'))
-    get_result(
-        quotes, neighbors, 'senseId', top_k=args.top_k
-    ).to_csv(path.format('senseId'))
+    result = get_result(neighbors, quotes['lemma'].to_numpy(), top_k=args.top_k)
+    result['lemma'] = quotes['lemma'].to_list()
+    result.to_csv(path.format('lemma'))
+    result = get_result(neighbors, quotes['senseId'].to_numpy(), top_k=args.top_k)
+    result['sense_id'] = quotes['senseId'].to_list()
+    result.to_csv(path.format('senseId'))
     if not os.path.isfile(os.path.join(args.output_prefix, 'nn-random.senseId.csv')):
         sense_random_baseline(quotes).to_csv(os.path.join(args.output_prefix, 'nn-random.senseId.csv'))
     if not os.path.isfile(os.path.join(args.output_prefix, 'nn-random.lemma.csv')):
