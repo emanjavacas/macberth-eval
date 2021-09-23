@@ -48,10 +48,12 @@ if __name__ == '__main__':
     parser.add_argument('--output-prefix', default='./data/nn/')
     parser.add_argument('--output-path', required=True)
     parser.add_argument('--device', default='cpu')
+    parser.add_argument('--aggregation', default='mean')
     parser.add_argument('--bsize', type=int, default=248)
     args = parser.parse_args()
 
     m = AutoModel.from_pretrained(args.model)
+    print(torch.cuda.device_count())
     m.to(args.device)
     tokenizer = AutoTokenizer.from_pretrained(args.model)
 
@@ -85,6 +87,7 @@ if __name__ == '__main__':
                 if args.aggregation == 'mean':
                     embs[j] = output[b_id, target].mean(0).cpu().numpy()
                 else:
+                    print("Using first sub-token embedding for the aggregation")
                     # use first token
                     embs[j] = output[b_id, target[0]].cpu().numpy()
                 # register id
