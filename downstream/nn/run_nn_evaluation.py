@@ -133,7 +133,7 @@ if __name__ == '__main__':
     result['lemma'] = quotes['lemma'].to_list()
     result.to_csv(path.format('lemma'))
     result = get_result(neighbors, quotes['senseId'].to_numpy(), top_k=args.top_k)
-    result['sense_id'] = quotes['senseId'].to_list()
+    result['senseId'] = quotes['senseId'].to_list()
     result.to_csv(path.format('senseId'))
     if not os.path.isfile(os.path.join(args.output_prefix, 'nn-random.senseId.csv')):
         sense_random_baseline(quotes).to_csv(os.path.join(args.output_prefix, 'nn-random.senseId.csv'))

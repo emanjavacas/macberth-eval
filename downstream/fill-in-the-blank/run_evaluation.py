@@ -43,21 +43,27 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     data = pd.read_csv(args.input_path)
-    data = data.iloc[:1000]
     # has keyword
     data['has_keyword'] = np.array([(k in q) for k, q in zip(data['keyword'], data['quote'])])
     data = data[data['has_keyword']]
+
+    print("original vocabulary: ", len(set(data['keyword'])))
     vocab = set(data['keyword'])
     for path in args.models:
         vocab = vocab.intersection(AutoTokenizer.from_pretrained(path).vocab)
+    print("intersection: ", len(vocab))
 
     data = data[data['keyword'].isin(vocab)]
     quotes, keywords = np.array(data['quote']), np.array(data['keyword'])
 
+    if not os.path.isdir(args.output_prefix):
+        os.makedirs(args.output_prefix)
+
     for path in args.models:
         model = AutoModelForMaskedLM.from_pretrained(path)
         tokenizer = AutoTokenizer.from_pretrained(path)
-        pipe = pipeline('fill-mask', model=model, tokenizer=tokenizer, top_k=100)
+        pipe = pipeline('fill-mask', model=model, tokenizer=tokenizer, top_k=100, 
+            device=-1 if args.device == 'cpu' else 0)
         results = get_predictions(quotes, keywords, pipe, 200, tokenizer.mask_token)
         results.index = data.index
         results = pd.DataFrame.from_dict(results)
