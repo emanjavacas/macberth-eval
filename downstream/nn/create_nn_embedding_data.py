@@ -14,7 +14,7 @@ if __name__ == '__main__':
         - quote: the actual text""")
     parser.add_argument('--sep', default='\t')
     parser.add_argument('--output-prefix', default='./data/nn/')
-    parser.add_argument('--min-count', type=int, default=200)
+    parser.add_argument('--min-count', type=int, default=100)
     args = parser.parse_args()
 
     quotes = pd.read_csv(args.input_file, sep=args.sep)
@@ -49,6 +49,14 @@ if __name__ == '__main__':
     # filter out function words
     targets = targets[~targets.index.isin(['the', 'much'])]
 
-    quotes[quotes['lemma'].isin(targets.index)][['lemma', 'senseId', 'quote', 'keyword', 'year', 'nWords']].to_csv(
+    # add different sense-id based on depth (using the numbering column)
+    degrees = list(sorted(set(quotes['numbering'].apply(
+        lambda row: len(row.rstrip('.').split('.'))))))
+    for degree in degrees:
+        quotes['depth-{}'.format(degree)] = quotes['numbering'].apply(
+            lambda row: '-'.join(row.rstrip('.').split('.')[:degree]))
+    columns = ['lemma', 'senseId', 'quote', 'keyword', 'year', 'nWords']
+    columns += ['depth-{}'.format(degree) for degree in degrees]
+    quotes[quotes['lemma'].isin(targets.index)][columns].to_csv(
         os.path.join(args.output_prefix, 'nn-data.csv'), index=False)
 

@@ -28,7 +28,7 @@ if __name__ == '__main__':
     parser.add_argument('--dev', required=True)
     parser.add_argument('--modelpath', required=True)
     parser.add_argument('--batch_size', type=int, default=16)
-    parser.add_argument('--num_epochs', type=int, default=2)
+    parser.add_argument('--num_epochs', type=int, default=5)
     parser.add_argument('--warmup_steps', type=float, default=0.1)
     parser.add_argument('--output-prefix', default='./models/periodization/')
     parser.add_argument('--device', default='cpu')

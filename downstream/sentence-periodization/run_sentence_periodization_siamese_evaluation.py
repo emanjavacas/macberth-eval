@@ -54,7 +54,7 @@ if __name__ == '__main__':
     scores = get_scores(model, dev_X, background_X)
     np.savez(
         os.path.join(args.output_prefix, args.output_path) + 
-            '-span={}+n_per_bin={}'.format(args.span, args.n_per_bin),
+            '.span={}+n_per_bin={}'.format(args.span, args.n_per_bin),
         scores=scores, background_y=background_y, dev_y=dev_y, dev_y_orig=dev_y_orig)
     
 

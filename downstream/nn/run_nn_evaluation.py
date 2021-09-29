@@ -65,16 +65,16 @@ def lemma_random_baseline(quotes, top_k=500):
     return result
 
 
-def sense_random_baseline(quotes, top_k=500):
+def sense_random_baseline(quotes, sense_field='senseId', top_k=500):
     rows, rows_candidates = dict(), dict()
     for item in quotes['lemma'].unique():
         rows_candidates[item] = np.array(quotes[quotes['lemma']==item]['row'])
-    for item in quotes['senseId'].unique():
-        rows[item] = np.array(quotes[quotes['senseId']==item]['row'])
+    for item in quotes[sense_field].unique():
+        rows[item] = np.array(quotes[quotes[sense_field]==item]['row'])
 
     retrieved, nNeighbors, ap = [], [], []
     for i in tqdm.tqdm(range(len(quotes))):
-        targets = rows[quotes.iloc[i]['senseId']]
+        targets = rows[quotes.iloc[i][sense_field]]
         candidates = rows_candidates[quotes.iloc[i]['lemma']]
         assert np.alltrue(np.isin(targets, candidates))
         # average precision
@@ -109,6 +109,7 @@ if __name__ == '__main__':
         - senseId: sense corresponding to the word""")
     parser.add_argument('--embeddings-path', required=True, 
         help="Path to embeddings from generate_nn_embeddings.py")
+    parser.add_argument('--sense_field', default='senseId')
     parser.add_argument('--output-prefix', default='./data/nn')
     parser.add_argument('--top_k', type=int, default=500)
     args = parser.parse_args()
@@ -116,11 +117,17 @@ if __name__ == '__main__':
     embs = np.load(args.embeddings_path, allow_pickle=True)
     index = embs.item()['index']
     quotes = pd.read_csv(args.input_path).iloc[index]
+    quotes['row'] = np.arange(len(quotes))
     if not os.path.isdir(args.output_prefix):
         os.makedirs(args.output_prefix)
 
     embs = embs.item()['embs'][index].astype(np.float32)
     embs = embs / norm(embs, axis=1)[:, None]
+
+    sense_field = args.sense_field
+    # uniquely identify senses within each lemma
+    quotes[sense_field] = quotes.apply(
+        lambda row: row['lemma'] + '+' + row[sense_field], axis=1)
 
     index = faiss.IndexFlatIP(embs.shape[1])
     index.add(embs)
@@ -132,10 +139,11 @@ if __name__ == '__main__':
     result = get_result(neighbors, quotes['lemma'].to_numpy(), top_k=args.top_k)
     result['lemma'] = quotes['lemma'].to_list()
     result.to_csv(path.format('lemma'))
-    result = get_result(neighbors, quotes['senseId'].to_numpy(), top_k=args.top_k)
-    result['senseId'] = quotes['senseId'].to_list()
-    result.to_csv(path.format('senseId'))
-    if not os.path.isfile(os.path.join(args.output_prefix, 'nn-random.senseId.csv')):
-        sense_random_baseline(quotes).to_csv(os.path.join(args.output_prefix, 'nn-random.senseId.csv'))
+    result = get_result(neighbors, quotes[sense_field].to_numpy(), top_k=args.top_k)
+    result[sense_field] = quotes[sense_field].to_list()
+    result.to_csv(path.format(sense_field))
+    if not os.path.isfile(os.path.join(args.output_prefix, 'nn-random.{}.csv'.format(sense_field))):
+        sense_random_baseline(quotes, sense_field=sense_field).to_csv(
+            os.path.join(args.output_prefix, 'nn-random.{}.csv'.format(sense_field)))
     if not os.path.isfile(os.path.join(args.output_prefix, 'nn-random.lemma.csv')):
         lemma_random_baseline(quotes).to_csv(os.path.join(args.output_prefix, 'nn-random.lemma.csv'))
