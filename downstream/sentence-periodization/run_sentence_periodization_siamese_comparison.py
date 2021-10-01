@@ -24,8 +24,9 @@ def classify(scores, background_y):
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument('--model1-eval') # './bert-periodization-scores-span=25.npz'
-    parser.add_argument('--model2-eval') # './macberth-periodization-scores-span=25.npz'
+    parser.add_argument('--model-evals', nargs='+')
+    # parser.add_argument('--model1-eval') # './bert-periodization-scores-span=25.npz'
+    # parser.add_argument('--model2-eval') # './macberth-periodization-scores-span=25.npz'
     parser.add_argument('--background',
         default='./data/sentence-periodization/periodization.background.csv')
     parser.add_argument('--output-prefix', default='./data/sentence-periodization')
@@ -35,31 +36,39 @@ if __name__ == '__main__':
     if not os.path.isdir(args.output_prefix):
         os.makedirs(args.output_prefix)
 
-    data1 = np.load(args.model1_eval)
-    scores1, background_y, dev_y_orig = data1['scores'], data1['background_y'], data1['dev_y_orig']
-    data2 = np.load(args.model2_eval)
-    scores2 = data2['scores']
     background = pd.read_csv(args.background)
     span = 50
     background['span'] = span * (background['year'] // span)
 
+    evals = {}
+    background_y = dev_y_orig = None # these are the same for all models
+    for path in args.model_evals:
+        model, *_ = os.path.basename(path).split('.')
+        _, *model, _, _, _, _, _ = model.split('-')
+        model = '-'.join(model)
+        data = np.load(path)
+        if background_y is None:
+            background_y, dev_y_orig = data['background_y'], data['dev_y_orig']
+        scores = data['scores']
+        evals[model] = scores
+
     data = collections.defaultdict(list)
     for n_per_bin in [10, 20, 30, 40, 50, 60, 70, 80, 90, 100]:
         for iteration in range(10):
-            sample = background.groupby('span').sample(n_per_bin, replace=False)
-            knees1 = classify(scores1[:, sample.index], background_y[sample.index])
-            knees2 = classify(scores2[:, sample.index], background_y[sample.index])
-            nans1, = np.where(np.isnan(knees1))
-            nans2, = np.where(np.isnan(knees2))
-            nans = np.union1d(nans1, nans2)
-            mask = np.ones(len(knees1))
+            sample = background.groupby('span').sample(n_per_bin, replace=False).index
+            knees = {m: classify(scores[:, sample], background_y[sample]) 
+                for m, scores in evals.items()}
+            nans = np.where(np.isnan(knee) for knee in knees.values())
+            nans = np.sort(np.unique(np.concatenate(nans)))
+            mask = np.ones(len(scores))
             mask[nans] = 0
             mask = mask.astype(np.bool)
             data['iteration'].append(iteration)
             data['n_per_bin'].append(n_per_bin)
             data['n_backgrouund'].append(len(sample))
             data['n_items'].append(len(mask[mask]))
-            data['mae-model1'].append(np.nanmean(np.abs(knees1[mask] - dev_y_orig[mask])))
-            data['mae-model2'].append(np.nanmean(np.abs(knees2[mask] - dev_y_orig[mask])))
+            for m, knee in knees.items():
+                data[m].append(np.nanmean(np.abs(knee[mask] - dev_y_orig[mask])))
+            data['nans'] = len(nans)
 
     pd.DataFrame.from_dict(data).to_csv(os.path.join(args.output_prefix, args.output_path))

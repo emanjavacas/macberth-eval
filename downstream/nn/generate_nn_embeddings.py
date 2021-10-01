@@ -87,7 +87,6 @@ if __name__ == '__main__':
                 if args.aggregation == 'mean':
                     embs[j] = output[b_id, target].mean(0).cpu().numpy()
                 else:
-                    print("Using first sub-token embedding for the aggregation")
                     # use first token
                     embs[j] = output[b_id, target[0]].cpu().numpy()
                 # register id
