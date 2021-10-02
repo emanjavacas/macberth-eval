@@ -1,5 +1,4 @@
 
-from collections import defaultdict
 import math
 import os
 from datetime import datetime
@@ -14,7 +13,6 @@ def load_dataset(path):
     df = pd.read_csv(path, sep='\t')
     examples = []
     for _, row in df.iterrows():
-        row['S1']
         examples.append(InputExample(
             texts=[row['S1'], row['S2']],
             label=int(row['Y1'] > row['Y2'])))

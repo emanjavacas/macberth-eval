@@ -86,15 +86,9 @@ if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument('--input-path', required=True) # oed-quotes-subset.tsv
-    parser.add_argument('--embeddings-path', required=True, 
-        help="Path to embeddings from generate_nn_embeddings.py")
     parser.add_argument('--output-prefix', default='./data/word-in-context')
     parser.add_argument('--min-count', type=int, default=100)
     parser.add_argument('--min-words', type=int, default=5)
-    parser.add_argument('--device', default='cpu')
-    parser.add_argument('--batch_size', type=int, default=48)
-    parser.add_argument('--epochs', type=int, default=10)
-
     args = parser.parse_args()
 
     if not os.path.isdir(args.output_prefix):
@@ -135,5 +129,5 @@ if __name__ == '__main__':
         export(data, df, 
             os.path.join(args.output_prefix, 'depth-{}.csv'.format(depth)))
         data_heldout = get_df(df_heldout, depth)
-        export(data, df_heldout, 
+        export(data_heldout, df_heldout, 
             os.path.join(args.output_prefix, 'heldout-depth-{}.csv'.format(depth)))
