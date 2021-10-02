@@ -33,8 +33,8 @@ def data_to_batches(data, df, embs, batch_size, device):
 #     def __init__(self, input_dim, lemmas):
 #         self.lemma2id = {lemma: id for id, lemma in enumerate(lemmas)}
 #         super().__init__()
-#         self.weigths = nn.Parameter(torch.FloatTensor(len(lemmas), input_dim * 2))
-#         nn.init.xavier_uniform_(self.weigths)
+#         self.weights = nn.Parameter(torch.FloatTensor(len(lemmas), input_dim * 2))
+#         nn.init.xavier_uniform_(self.weights)
 
 #     def device(self):
 #         return next(self.parameters()).device
@@ -44,28 +44,34 @@ def data_to_batches(data, df, embs, batch_size, device):
 #         inp = torch.cat([emb1, emb2], axis=1)
 #         index = torch.tensor([self.lemma2id[l] for l in lemmas])
 #         index = index.to(device)
-#         weigths = self.weigths[index]
-#         return F.sigmoid(torch.sum(weigths * inp, axis=1))
+#         weights = self.weights[index]
+#         return torch.sigmoid(torch.sum(weights * inp, axis=1))
 
 
 class Model(nn.Module):
-    def __init__(self, input_dim, lemmas, dropout=0.25):
+    def __init__(self, input_dim, lemmas, dropout=0.25, layers=3):
         self.lemma2id = {lemma: id for id, lemma in enumerate(lemmas)}
         self.dropout = dropout
         super().__init__()
         self.lemma_embs = nn.Embedding(len(lemmas), input_dim * 2)
-        self.weigths = nn.Linear(input_dim * 2, input_dim * 2)
+        # self.weights = nn.Linear(input_dim * 2, input_dim * 2)
+        weights = []
+        for _ in range(layers):
+            weights.append(nn.Linear(input_dim * 2, input_dim * 2))
+            weights.append(nn.Dropout(p=dropout))
+        self.weights = nn.Sequential(*weights)
 
     def device(self):
         return next(self.parameters()).device
 
     def forward(self, emb1, emb2, lemmas):
-        lemmas = torch.tensor([self.lemma2id[lemma] for lemma in lemmas]).to(self.device())
+        device = self.device()
+        lemmas = torch.tensor([self.lemma2id[lemma] for lemma in lemmas]).to(device)
         weights = self.lemma_embs(lemmas)
-        weights = F.dropout(weights, p=self.dropout, training=self.training)
+        # weights = F.dropout(weights, p=self.dropout, training=self.training)
         inp = torch.cat([emb1, emb2], axis=1).float()
         scores = torch.sum(weights * inp, axis=1)
-        return F.sigmoid(scores)
+        return torch.sigmoid(scores)
 
 
 def train_epoch(model, data, df, embs, batch_size, opt, device):
@@ -99,7 +105,7 @@ def evaluate(model, data, df, embs, batch_size, device):
             ).item()
             n_batches += 1
 
-            probs = F.sigmoid(logits)
+            probs = torch.sigmoid(logits)
             tprobs.extend(probs.cpu().numpy())
             tlabels.extend(label.cpu().numpy())
     tprobs, tlabels = np.array(tprobs), np.array(tlabels)
@@ -175,4 +181,5 @@ if __name__ == '__main__':
             accuracy_score(val_data['label'], np.zeros(len(val_data)))))
         # set up model and train
         model = Model(embs.shape[1], list(set(df['lemma'])))
+        model.to(args.device)
         train(model, train_data, val_data, df, embs, args.epochs, args.batch_size, args.device)
