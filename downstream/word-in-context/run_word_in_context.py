@@ -121,6 +121,7 @@ def evaluate(model, data, df, embs, batch_size, device):
 
 def train(model, train_data, val_data, df, embs, epochs, batch_size, device):
     opt = optim.Adam(model.parameters(), lr=0.001, weight_decay=1e-5)
+    scheduler = optim.lr_scheduler.StepLR(opt, 50, gamma=0.5, verbose=True)
     for epoch in range(epochs):
         model.train()
         train_epoch(model, train_data, df, embs, batch_size, opt, device)
@@ -132,6 +133,7 @@ def train(model, train_data, val_data, df, embs, epochs, batch_size, device):
         results = evaluate(model, train_data, df, embs, batch_size, device)
         for key, val in results.items():
             print('  train - {}={:g}'.format(key, val))
+        scheduler.step()
 
 
 if __name__ == '__main__':

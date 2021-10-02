@@ -15,7 +15,6 @@ if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument('--periodizer', required=True)
-    parser.add_argument('--output', required=True)
     parser.add_argument('--background',
         default='./data/sentence-periodization/periodization.background.csv')
     parser.add_argument('--output-prefix', default='./data/sentence-periodization')
