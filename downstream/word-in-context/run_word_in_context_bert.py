@@ -1,6 +1,7 @@
 
 import math
 import os
+import shutil
 from datetime import datetime
 
 import pandas as pd
@@ -9,17 +10,27 @@ from sklearn.model_selection import train_test_split
 
 from sentence_transformers.readers import InputExample
 from sentence_transformers import CrossEncoder
+from transformers import AutoTokenizer, AutoModel
 from sentence_transformers.cross_encoder.evaluation import CEBinaryClassificationEvaluator
+
+TGT = '[TGT]'
+
+def get_training_examples(row, target_token=TGT):
+    def get_quote(num):
+        pos = row['quote_' + num].find(row['keyword_' + num])
+        middle = '{} {} {}'.format(target_token, row['keyword_' + num], target_token)
+        pre = row['quote_' + num][:pos] 
+        post = row['quote_' + num][pos + len(row['keyword_' + num]):]
+        return pre + middle + post
+
+    return get_quote('1'), get_quote('2'), row['label']
 
 
 def load_dataset(path):
     df = pd.read_csv(path)
     examples = []
-    for _, row in df.iterrows():
-        examples.append(InputExample(
-            texts=[row['quote_1'], row['quote_2'], row['keyword_1'], row['keyword_2']],
-            label=row['label']
-        ))
+    for q1, q2, label in df.apply(get_training_examples, axis=1).tolist():
+        examples.append(InputExample(texts=[q1, q2], label=label))
     return examples
 
 
@@ -36,6 +47,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     train = load_dataset(args.data)
+    # train = load_dataset('./data/word-in-context/depth-1.csv')
     train, dev = train_test_split(train, random_state=1001)
 
     # Configuration
@@ -45,11 +57,20 @@ if __name__ == '__main__':
     if not os.path.isdir(os.path.dirname(model_save_path)):
         os.makedirs(os.path.dirname(model_save_path))
 
-    model = CrossEncoder(args.modelpath, num_labels=1, device=args.device)
+    tokenizer = AutoTokenizer.from_pretrained(args.modelpath)
+    tokenizer.add_special_tokens({'additional_special_tokens': ['[TGT]']})
+    model = AutoModel.from_pretrained(args.modelpath)
+    model.resize_token_embeddings(len(tokenizer))
+    # save resized model to be able to open it with CrossEncoder
+    modelpath = args.modelpath.rstrip('/') + '-wic'
+    model.save_pretrained(modelpath)
+    tokenizer.save_pretrained(modelpath)
+    model = CrossEncoder(modelpath, num_labels=1, device=args.device)
+    shutil.rmtree(modelpath)
 
     # We wrap train_samples (which is a List[InputExample]) into a pytorch DataLoader
     train_dataloader = DataLoader(train, shuffle=True, batch_size=args.batch_size)
-
+    train_dataloader.collate_fn = model.smart_batching_collate
     # We add an evaluator, which evaluates the performance during training
     evaluator = CEBinaryClassificationEvaluator.from_input_examples(dev, name='wic-dev')
 
