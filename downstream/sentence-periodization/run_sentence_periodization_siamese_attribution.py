@@ -61,16 +61,10 @@ if __name__ == '__main__':
     background_X, background_y = zip(*background[['quote', 'year']].values)
     background_X, background_y = np.array(background_X), np.array(background_y)
     background['span'] = args.span * (background['year'] // args.span)
-    background_sample = background.groupby('span').sample(
-        50, replace=False, random_state=1001)
-    sample_x, sample_y = [], []
-    for _, g in background_sample.groupby('span'):
-        x, y = np.split(g, 2)
-        sample_x.append(x)
-        sample_y.append(y)
-    sample_x = pd.concat(sample_x)
-    sample_y = pd.concat(sample_y)
-    print(background_sample.head())
+    sample_x = background.groupby('span').sample(
+        5, replace=False, random_state=1001)
+    sample_y = background.groupby('span').sample(
+        5, replace=False, random_state=1001)
     print(len(sample_x), len(sample_y), len(sample_x) * len(sample_y))
 
     lig = LayerIntegratedGradients(predict, periodizer.model.bert.embeddings)

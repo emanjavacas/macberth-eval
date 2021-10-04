@@ -42,7 +42,7 @@ if __name__ == '__main__':
     parser.add_argument('--batch_size', type=int, default=16)
     parser.add_argument('--num_epochs', type=int, default=5)
     parser.add_argument('--warmup_steps', type=float, default=0.1)
-    parser.add_argument('--output-prefix', default='./models/periodization/')
+    parser.add_argument('--output-prefix', default='./models/word-in-context/')
     parser.add_argument('--device', default='cpu')
     args = parser.parse_args()
 
@@ -51,7 +51,7 @@ if __name__ == '__main__':
     train, dev = train_test_split(train, random_state=1001)
 
     # Configuration
-    model_save_path = 'word-in-context-' + os.path.basename(os.path.dirname(args.modelpath))
+    model_save_path = 'word-in-context-' + os.path.basename(args.modelpath.rstrip('/'))
     model_save_path += '-' + datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     model_save_path = os.path.join(args.output_prefix, model_save_path)
     if not os.path.isdir(os.path.dirname(model_save_path)):
