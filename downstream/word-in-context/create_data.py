@@ -78,6 +78,7 @@ def export(data, df, outputpath):
     d2['id'] = np.arange(len(d2))
     merge = pd.merge(d1, d2, on='id', suffixes=('_1', '_2'))
     merge['label'] = data['label']
+    merge['lemma'] = data['lemma']
     merge.drop('id', axis=1, inplace=True)
     merge.to_csv(outputpath, index=False)
 
