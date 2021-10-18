@@ -47,6 +47,7 @@ if __name__ == '__main__':
     parser.add_argument('--sep', default='\t')
     parser.add_argument('--modelpaths', nargs='+', required=True)
     parser.add_argument('--output-prefix', default='./data/wsd/')
+    parser.add_argument('--key', default='depth-1')
     args = parser.parse_args()
 
     if not os.path.isdir(args.output_prefix):
@@ -71,17 +72,17 @@ if __name__ == '__main__':
         if lemma not in targets:
             continue
         # drop senses where we can't stratify
-        senses = subset['depth-1'].value_counts()
-        subset = subset[subset['depth-1'].isin(senses[senses >= 2].index)]
+        senses = subset[args.key].value_counts()
+        subset = subset[subset[args.key].isin(senses[senses >= 2].index)]
         if len(subset) < 2:
             continue
         # drop lemmas with only one sense
-        senses = subset['depth-1'].value_counts()
+        senses = subset[args.key].value_counts()
         if len(senses) == 1:
             continue
-        train, test = train_test_split(subset.index, stratify=subset['depth-1'], test_size=0.5)
-        assert set(df_source.iloc[test]['depth-1']).difference(
-            set(df_source.iloc[train]['depth-1'])) == set()
+        train, test = train_test_split(subset.index, stratify=subset[args.key], test_size=0.5)
+        assert set(df_source.iloc[test][args.key]).difference(
+            set(df_source.iloc[train][args.key])) == set()
         splits.append((train, test))
 
     do_baselines = True
@@ -104,7 +105,7 @@ if __name__ == '__main__':
                 continue
             # compute centroids
             centroids, labels = [], []
-            for sense, group in train.groupby('depth-1'):
+            for sense, group in train.groupby(args.key):
                 labels.append(sense)
                 centroids.append(embs[group.index].mean(axis=0))
             centroids = np.array(centroids)
@@ -115,13 +116,13 @@ if __name__ == '__main__':
             # baselines
             majority = rand = None
             if do_baselines:
-                majority, rand = baselines(train, test)
+                majority, rand = baselines(train, test, key=args.key)
 
             for idx in range(len(test)):
                 base = {'lemma': test.iloc[idx]['lemma'],
                         'year': test.iloc[idx]['year'],
                         'pos': test.iloc[idx]['pos'],
-                        'true': test.iloc[idx]['depth-1']}
+                        'true': test.iloc[idx][args.key]}
 
                 results.append(
                     dict(model=model, 
@@ -134,4 +135,5 @@ if __name__ == '__main__':
                         results.append(dict(model=baseline, pred=b_pred[idx], **base))
         do_baselines = False
 
-    pd.DataFrame.from_dict(results).to_csv(os.path.join(args.output_prefix, 'wsd-results.csv'))
+    pd.DataFrame.from_dict(results).to_csv(
+        os.path.join(args.output_prefix, 'wsd-results-{}.csv'.format(args.key)))
