@@ -1,8 +1,7 @@
 
-
+import json
 import os
 import glob
-import pandas as pd
 from sklearn.model_selection import train_test_split
 
 
@@ -86,13 +85,22 @@ for path in _test:
 for path in _dev:
     assert path not in _train
 
+
+def write_json(examples, output):
+    with open(output, 'w+') as f:
+        for ex in examples:
+            f.write(json.dumps(ex) + '\n')
+
 for size in [50, 100, 150, 200, None]:
     target_dir = os.path.join(ROOT, 'ppceme-{}'.format(size or 'full'))
     if not os.path.isdir(target_dir):
         os.makedirs(target_dir)
-    pd.DataFrame.from_dict(list(generate_examples(_test))).to_csv(
-        os.path.join(target_dir, 'test.csv'))
-    pd.DataFrame.from_dict(list(generate_examples(_dev))).to_csv(
-        os.path.join(target_dir, 'dev.csv'))
-    pd.DataFrame.from_dict(list(generate_examples(_train[:size]))).to_csv(
-        os.path.join(target_dir, 'train.csv'))
+    write_json(list(generate_examples(_test)), os.path.join(target_dir, 'test.json'))
+    write_json(list(generate_examples(_dev)), os.path.join(target_dir, 'dev.json'))
+    write_json(list(generate_examples(_train[:size])), os.path.join(target_dir, 'train.json'))
+    # pd.DataFrame.from_dict(list(generate_examples(_test))).to_csv(
+    #     os.path.join(target_dir, 'test.csv'))
+    # pd.DataFrame.from_dict(list(generate_examples(_dev))).to_csv(
+    #     os.path.join(target_dir, 'dev.csv'))
+    # pd.DataFrame.from_dict(list(generate_examples(_train[:size]))).to_csv(
+    #     os.path.join(target_dir, 'train.csv'))
