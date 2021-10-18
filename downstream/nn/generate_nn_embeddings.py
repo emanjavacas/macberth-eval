@@ -49,6 +49,7 @@ if __name__ == '__main__':
     parser.add_argument('--output-path', required=True)
     parser.add_argument('--device', default='cpu')
     parser.add_argument('--aggregation', default='mean')
+    parser.add_argument('--sep', default=',')
     parser.add_argument('--bsize', type=int, default=248)
     args = parser.parse_args()
 
@@ -57,7 +58,7 @@ if __name__ == '__main__':
     m.to(args.device)
     tokenizer = AutoTokenizer.from_pretrained(args.model)
 
-    quotes = pd.read_csv(args.input_path)
+    quotes = pd.read_csv(args.input_path, sep=args.sep)
     if not os.path.isdir(args.output_prefix):
         os.makedirs(args.output_prefix)
 
@@ -67,7 +68,7 @@ if __name__ == '__main__':
     tokens = tokenizer(list(quotes['quote']), return_tensors='pt', padding=True)
 
     embs = np.zeros((len(text), m.config.hidden_size))
-    index = []
+    index, n_subtokens = [], []
 
     total = len(tokens['input_ids']) // args.bsize
     for i in tqdm.tqdm(range(0, len(tokens['input_ids']), args.bsize), total=total):
@@ -91,15 +92,8 @@ if __name__ == '__main__':
                     embs[j] = output[b_id, target[0]].cpu().numpy()
                 # register id
                 index.append(j)
+                # add number of subtokens
+                n_subtokens.append(len(target))
 
-    np.save(os.path.join(args.output_prefix, args.output_path), {'embs': embs, 'index': index})
-
-# path = '../../Leiden/diachronic-token-embeddings/macberth-small/transformers/ckpt-1000000/'
-# m = AutoModel.from_pretrained(path)
-# tokenizer = AutoTokenizer.from_pretrained(path)
-# quotes = pd.read_csv('../../Leiden/Datasets/OED/data/oed-quotes-subset.tsv', sep='\t')
-# quotes, keywords = list(quotes['quote']), list(quotes['keyword'])
-# tokens = tokenizer(quotes[:10], return_tensors='pt', padding=True)
-# output = m(**tokens, output_hidden_states=True)
-# output = output['hidden_states'][-1]
-# mapping = subwords_to_token_ids(tokens['input_ids'][0], tokenizer)
+    np.save(os.path.join(args.output_prefix, args.output_path), 
+        {'embs': embs, 'index': index, 'n_subtokens': n_subtokens})
