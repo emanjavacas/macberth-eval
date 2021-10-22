@@ -7,19 +7,24 @@ from transformers import (
     DataCollatorForTokenClassification)
 import torch
 from torch.utils.data import DataLoader
+import pandas as pd
 
 
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument('--test-path', required=True)
+    parser.add_argument('--train-path', required=True) # for OOV evaluation
     parser.add_argument('--model-path', required=True)
+    parser.add_argument('--output-path', required=True)
+    parser.add_argument('--device', default='cpu')
     args = parser.parse_args()
 
     # test_path = '/Users/manjavacas/Leiden/Datasets/ppceme-50/test.json'
     # model_path = './data/pos/bert_1760_1900-ppceme-100/'
 
     m = AutoModelForTokenClassification.from_pretrained(args.model_path)
+    m.to(args.device)
     tokenizer = AutoTokenizer.from_pretrained(args.model_path)
 
     label2id = m.config.label2id
@@ -73,9 +78,11 @@ if __name__ == '__main__':
     data = []
     for input in tqdm.tqdm(data_loader, total=len(data_loader)):
         with torch.no_grad():
-            output = m(**{k:v for k, v in input.items() if k != 'labels'})
+            output = m(**{k:v.to(args.device) for k, v in input.items() if k != 'labels'})
         has_unk = False
-        for labels, preds in zip(input['labels'].numpy(), output.logits.argmax(2).numpy()):
+        for labels, preds in zip(
+                input['labels'].cpu().numpy(),
+                output.logits.argmax(2).cpu().numpy()):
             instance = dataset[idx]
             has_unk = -101 in labels
             id_labels = [m.config.id2label.get(id) for id in labels[labels != -100]]
@@ -91,3 +98,5 @@ if __name__ == '__main__':
                 assert true_labels == id_labels
             has_unk = False
             idx += 1
+
+    pd.DataFrame(data).to_csv(args.output_path, index=False)
