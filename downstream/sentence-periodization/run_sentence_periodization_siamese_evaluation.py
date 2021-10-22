@@ -20,11 +20,12 @@ def get_data(dataset, span=10):
     return np.array(X), np.array(y), np.array(y_orig)
 
 
-def get_scores(model, X, background_X):
+def get_scores(model, X, background_X, forward=True):
     output = []
     with torch.no_grad():
         for inp in tqdm.tqdm(X):
-            output.append(model.predict([[inp, sent] for sent in background_X]))
+            output.append(model.predict(
+                [([inp, sent] if forward else [sent, inp]) for sent in background_X]))
     return np.array(output)
 
 
@@ -34,6 +35,7 @@ if __name__ == '__main__':
     parser.add_argument('--modelpath')
     parser.add_argument('--background', required=True)
     parser.add_argument('--dev')
+    parser.add_argument('--backwward', action='store_true')
     parser.add_argument('--span', type=int, default=25)
     parser.add_argument('--n_per_bin', type=int, default=20)
     parser.add_argument('--device', default='cpu')
@@ -51,10 +53,11 @@ if __name__ == '__main__':
     background_X, background_y = np.array(background_X), np.array(background_y)
 
     dev_X, dev_y, dev_y_orig = get_data(pd.read_csv(args.dev, sep="\t"), span=args.span)
-    scores = get_scores(model, dev_X, background_X)
+    scores = get_scores(model, dev_X, background_X, forward=not args.backward)
     np.savez(
         os.path.join(args.output_prefix, args.output_path) + 
-            '.span={}+n_per_bin={}'.format(args.span, args.n_per_bin),
+            '.span={}+n_per_bin={}'.format(args.span, args.n_per_bin) + 
+            ('.backward' if args.backward else ''),
         scores=scores, background_y=background_y, dev_y=dev_y, dev_y_orig=dev_y_orig)
     
 
