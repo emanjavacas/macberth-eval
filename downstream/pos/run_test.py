@@ -1,4 +1,6 @@
 
+import json
+import collections
 import tqdm
 import datasets
 from transformers import (
@@ -22,10 +24,14 @@ if __name__ == '__main__':
 
     # test_path = '/Users/manjavacas/Leiden/Datasets/ppceme-50/test.json'
     # model_path = './data/pos/bert_1760_1900-ppceme-100/'
+    # train_path = '/Users/manjavacas/Leiden/Datasets/ppceme-50/train.json'
 
     m = AutoModelForTokenClassification.from_pretrained(args.model_path)
     m.to(args.device)
     tokenizer = AutoTokenizer.from_pretrained(args.model_path)
+    # m = AutoModelForTokenClassification.from_pretrained(model_path)
+    # tokenizer = AutoTokenizer.from_pretrained(model_path)
+
 
     label2id = m.config.label2id
     text_column_name = 'tokens'
@@ -68,14 +74,18 @@ if __name__ == '__main__':
     dataset = datasets.load_dataset(
         'json', data_files={'test': args.test_path}
     )['test'].map(tokenize_and_align_labels, batched=True)
+    train = datasets.load_dataset(
+        'json', data_files=args.train_path)['train']
+    known_tokens = set(tok for sent in train['tokens'] for tok in sent)
 
-    collator = DataCollatorForTokenClassification(tokenizer)
+    collator = DataCollatorForTokenClassification(tokenizer, )
     data_loader = DataLoader(
         dataset.remove_columns(['id', 'pos_tags', 'source', 'tokens']),
         batch_size=48, collate_fn=collator)
 
     idx = 0
     data = []
+    total, knowns, unknowns = collections.Counter(), collections.Counter(), collections.Counter()
     for input in tqdm.tqdm(data_loader, total=len(data_loader)):
         with torch.no_grad():
             output = m(**{k:v.to(args.device) for k, v in input.items() if k != 'labels'})
@@ -96,7 +106,17 @@ if __name__ == '__main__':
             if len(labels) < 512 and not has_unk:
                 true_labels = instance['pos_tags']
                 assert true_labels == id_labels
+                for label, pred, token in zip(id_labels, pred_labels, instance['tokens']):
+                    correct = int(pred == label)
+                    total[label] += 1
+                    if token in known_tokens:
+                        knowns[label] += correct
+                    else:
+                        unknowns[label] += correct
             has_unk = False
             idx += 1
 
-    pd.DataFrame(data).to_csv(args.output_path, index=False)
+    output_path = '.'.join(args.output_path.split('.')[:-1])
+    pd.DataFrame(data).to_csv(output_path + '.csv', index=False)
+    with open(output_path + '.json', 'w') as f:
+        json.dump({'known': knowns, 'unknown': unknowns, 'total': total}, f)
