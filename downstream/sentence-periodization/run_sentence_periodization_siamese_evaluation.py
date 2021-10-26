@@ -35,7 +35,7 @@ if __name__ == '__main__':
     parser.add_argument('--modelpath')
     parser.add_argument('--background', required=True)
     parser.add_argument('--dev')
-    parser.add_argument('--backwward', action='store_true')
+    parser.add_argument('--backward', action='store_true')
     parser.add_argument('--span', type=int, default=25)
     parser.add_argument('--n_per_bin', type=int, default=20)
     parser.add_argument('--device', default='cpu')
