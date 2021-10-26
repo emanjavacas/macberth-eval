@@ -6,11 +6,15 @@ import tqdm
 import numpy as np
 import pandas as pd
 from kneed import KneeLocator
+from sklearn.metrics import accuracy_score
 
 
-def classify(scores, background_y):
+def classify(scores, background_y, threshold=None):
     knees = []
-    gt = np.cumsum(scores[:, np.argsort(background_y)], axis=1)
+    if threshold is not None:
+        gt = np.cumsum(scores[:, np.argsort(background_y)] > threshold, axis=1)
+    else:
+        gt = np.cumsum(scores[:, np.argsort(background_y)], axis=1)
     for row in tqdm.tqdm(np.arange(len(scores))):
         knee = KneeLocator(
             np.sort(background_y), gt[row], 
@@ -19,6 +23,15 @@ def classify(scores, background_y):
         knee = knee if knee is not None else np.nan
         knees.append(knee)
     return np.array(knees)
+
+
+def find_threshold(true, scores, min_th=0, max_th=1):
+    accs, ths = [], []
+    for th in tqdm.tqdm(np.linspace(min_th, max_th)):
+        pred = scores > th
+        accs.append(accuracy_score(true.reshape(-1), pred.reshape(-1)))
+        ths.append(th)
+    return np.array(accs), np.array(ths)
 
 
 if __name__ == '__main__':
@@ -31,6 +44,7 @@ if __name__ == '__main__':
         default='./data/sentence-periodization/periodization.background.csv')
     parser.add_argument('--output-prefix', default='./data/sentence-periodization')
     parser.add_argument('--output-path', required=True)
+    parser.add_argument('--threshold', action='store_true')
     args = parser.parse_args()
 
     if not os.path.isdir(args.output_prefix):
@@ -41,6 +55,7 @@ if __name__ == '__main__':
     background['span'] = span * (background['year'] // span)
 
     evals = {}
+    thresholds = {}
     background_y = dev_y_orig = None # these are the same for all models
     for path in args.model_evals:
         model, *_ = os.path.basename(path).split('.')
@@ -52,11 +67,17 @@ if __name__ == '__main__':
         scores = data['scores']
         evals[model] = scores
 
+        true = dev_y_orig[:, None] > background_y[None, :]
+        accs, ths = find_threshold(true, scores)
+        thresholds[model] = ths[np.argmax(accs)]
+
     data = collections.defaultdict(list)
     for n_per_bin in [10, 20, 30, 40, 50, 60, 70, 80, 90, 100]:
         for iteration in range(10):
             sample = background.groupby('span').sample(n_per_bin, replace=False).index
             knees = {m: classify(scores[:, sample], background_y[sample]) 
+                for m, scores in evals.items()}
+            knees_th = {m: classify(scores[:, sample], background_y[sample], threshold=thresholds[m]) 
                 for m, scores in evals.items()}
             nans = np.where(np.isnan(knee) for knee in knees.values())
             nans = np.sort(np.unique(np.concatenate(nans)))
