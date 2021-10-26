@@ -85,7 +85,7 @@ if __name__ == '__main__':
 
     idx = 0
     data = []
-    total, knowns, unknowns = collections.Counter(), collections.Counter(), collections.Counter()
+    data_oov = []
     for input in tqdm.tqdm(data_loader, total=len(data_loader)):
         with torch.no_grad():
             output = m(**{k:v.to(args.device) for k, v in input.items() if k != 'labels'})
@@ -101,22 +101,38 @@ if __name__ == '__main__':
                 'id': instance['id'],
                 'n_tokens': len(instance['tokens']),
                 'n_labels': len(list(filter(None, id_labels))),
-                'n_true': sum(1 if l==t else 0 for l, t in zip(pred_labels, id_labels) if l is not None)
+                'n_true': sum(1 if l==t else 0 
+                    for l, t in zip(pred_labels, id_labels) if l is not None)
             })
+
+            data_oov_instance = {
+                'known_total': collections.Counter(), 
+                'unknown_total': collections.Counter(), 
+                'known': collections.Counter(), 
+                'unknown': collections.Counter()}
+
+            for label, pred, token in zip(id_labels, pred_labels, instance['tokens']):
+                if label is None:
+                    continue
+                correct = int(pred == label)
+                if token in known_tokens:
+                    data_oov_instance['known'][label] += correct
+                    data_oov_instance['known_total'][label] += 1
+                else:
+                    data_oov_instance['unknown'][label] += correct
+                    data_oov_instance['unknown_total'][label] += 1
+            
+            data_oov.append(dict(id=instance['id'], **dict(data_oov_instance)))
+        
             if len(labels) < 512 and not has_unk:
                 true_labels = instance['pos_tags']
                 assert true_labels == id_labels
-                for label, pred, token in zip(id_labels, pred_labels, instance['tokens']):
-                    correct = int(pred == label)
-                    total[label] += 1
-                    if token in known_tokens:
-                        knowns[label] += correct
-                    else:
-                        unknowns[label] += correct
             has_unk = False
             idx += 1
+    
+
 
     output_path = '.'.join(args.output_path.split('.')[:-1])
     pd.DataFrame(data).to_csv(output_path + '.csv', index=False)
     with open(output_path + '.json', 'w') as f:
-        json.dump({'known': knowns, 'unknown': unknowns, 'total': total}, f)
+        json.dump(data_oov, f)
