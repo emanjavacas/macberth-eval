@@ -51,7 +51,9 @@ if __name__ == '__main__':
     train, dev = train_test_split(train, random_state=1001)
 
     # Configuration
-    model_save_path = 'word-in-context-' + os.path.basename(args.modelpath.rstrip('/'))
+    depth = os.path.basename(args.data).split('.')[0]
+    model_save_path = 'word-in-context_{}'.format(depth) + \
+        os.path.basename(args.modelpath.rstrip('/'))
     model_save_path += '-' + datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     model_save_path = os.path.join(args.output_prefix, model_save_path)
     if not os.path.isdir(os.path.dirname(model_save_path)):

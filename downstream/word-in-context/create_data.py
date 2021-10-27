@@ -111,7 +111,7 @@ if __name__ == '__main__':
 
     # get available depths
     depths = set(df['numbering'].apply(lambda row: len(row.rstrip('.').split('.'))))
-    depths = [1]
+    # depths = [1]
 
     # split heldout lemmas
     _, heldout = train_test_split(
