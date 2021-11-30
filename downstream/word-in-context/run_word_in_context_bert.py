@@ -52,7 +52,7 @@ if __name__ == '__main__':
 
     # Configuration
     depth = os.path.basename(args.data).split('.')[0]
-    model_save_path = 'word-in-context_{}'.format(depth) + \
+    model_save_path = 'word-in-context_{}.'.format(depth) + \
         os.path.basename(args.modelpath.rstrip('/'))
     model_save_path += '-' + datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     model_save_path = os.path.join(args.output_prefix, model_save_path)

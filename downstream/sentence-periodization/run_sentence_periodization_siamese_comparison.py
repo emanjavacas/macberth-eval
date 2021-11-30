@@ -70,6 +70,7 @@ if __name__ == '__main__':
         true = dev_y_orig[:, None] > background_y[None, :]
         accs, ths = find_threshold(true, scores)
         thresholds[model] = ths[np.argmax(accs)]
+        print(model, ths[np.argmax(accs)], np.max(accs))
 
     data = collections.defaultdict(list)
     for n_per_bin in [10, 20, 30, 40, 50, 60, 70, 80, 90, 100]:
