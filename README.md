@@ -1,6 +1,6 @@
 # MacBERTh
 
-This repository contains the code used to evaluate the historical BERT model (MacBERTh) trained on more than 3B of historical English across 5 centuries. Publication is forthcoming. 
+This repository contains the code used to evaluate the historical BERT model (MacBERTh) trained on more than 3B tokens of historical English across 5 centuries. Publication detailing training, data sources and evaluation is forthcoming. 
 
 In order to use the model, you can use the transformers API using MacBERThs online path: `emanjavacas/MacBERTh`.
 
