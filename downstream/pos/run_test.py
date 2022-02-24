@@ -129,8 +129,6 @@ if __name__ == '__main__':
                 assert true_labels == id_labels
             has_unk = False
             idx += 1
-    
-
 
     output_path = '.'.join(args.output_path.split('.')[:-1])
     pd.DataFrame(data).to_csv(output_path + '.csv', index=False)
