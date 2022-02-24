@@ -45,6 +45,7 @@ if __name__ == '__main__':
     parser.add_argument('--output-prefix', default='./data/sentence-periodization')
     parser.add_argument('--output-path', required=True)
     parser.add_argument('--threshold', action='store_true')
+    parser.add_argument('--span', type=int, default=50)
     args = parser.parse_args()
 
     if not os.path.isdir(args.output_prefix):
