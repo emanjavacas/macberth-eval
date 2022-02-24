@@ -1,7 +1,9 @@
 
+from operator import setitem
 import os
 import tqdm
 import random
+import collections
 
 import pandas as pd
 import numpy as np
@@ -66,7 +68,8 @@ if __name__ == '__main__':
     # create splits
     counts = df_source['lemma'].value_counts()
     targets = counts[counts >= 50].index
-    splits = []
+    splits = collections.defaultdict(list)
+
     for lemma, subset in df_source[df_source['lemma'].isin(targets)].groupby('lemma'):
         # drop lemmas not in target frequency
         if lemma not in targets:
@@ -83,7 +86,15 @@ if __name__ == '__main__':
         train, test = train_test_split(subset.index, stratify=subset[args.key], test_size=0.5)
         assert set(df_source.iloc[test][args.key]).difference(
             set(df_source.iloc[train][args.key])) == set()
-        splits.append((train, test))
+
+        splits['full'].append((0, train, test))
+        for it in range(20):
+            for n_items in [1, 2, 5, 10, 15, 25]:
+                train_sample, train_subset = [], subset.loc[train]
+                for s, c in train_subset[args.key].value_counts().items():
+                    train_subset_s = train_subset[train_subset[args.key]==s]
+                    train_sample.extend(train_subset_s.sample(n=min(n_items, c)).index)
+                splits[n_items].append((it, train_sample, test))
 
     do_baselines = True
     results = []
@@ -98,42 +109,45 @@ if __name__ == '__main__':
         # path = './data/wsd/multi_cased_L-12_H-768_A-12.embs.npy'
         model, *_ = os.path.basename(path).split('.')
 
-        for train_index, test_index in tqdm.tqdm(splits):
-            train, test = df_source.iloc[train_index], df_source.iloc[test_index]
-            # drop cases if they are not in the index
-            if len((set(test.index)).difference(index)) > 0:
-                continue
-            # compute centroids
-            centroids, labels = [], []
-            for sense, group in train.groupby(args.key):
-                labels.append(sense)
-                centroids.append(embs[group.index].mean(axis=0))
-            centroids = np.array(centroids)
-            # model
-            sims = cosine_similarity(embs[test.index], centroids)
-            pred = [labels[i] for i in np.argsort(sims)[:, -1]]
+        for n_items, indices in tqdm.tqdm(splits.items()):
+            for (iteration, train_index, test_index) in indices:
+                train, test = df_source.iloc[train_index], df_source.iloc[test_index]
+                # drop cases if they are not in the index
+                if len((set(test.index)).difference(index)) > 0:
+                    continue
+                # compute centroids
+                centroids, labels = [], []
+                for sense, group in train.groupby(args.key):
+                    labels.append(sense)
+                    centroids.append(embs[group.index].mean(axis=0))
+                centroids = np.array(centroids)
+                # model
+                sims = cosine_similarity(embs[test.index], centroids)
+                pred = [labels[i] for i in np.argsort(sims)[:, -1]]
 
-            # baselines
-            majority = rand = None
-            if do_baselines:
-                majority, rand = baselines(train, test, key=args.key)
-
-            for idx in range(len(test)):
-                base = {'lemma': test.iloc[idx]['lemma'],
-                        'year': test.iloc[idx]['year'],
-                        'pos': test.iloc[idx]['pos'],
-                        'true': test.iloc[idx][args.key]}
-
-                results.append(
-                    dict(model=model, 
-                         pred=pred[idx], 
-                         n_subtokens=test.iloc[idx]['n_subtokens'], 
-                         **base))
-
+                # baselines
+                majority = rand = None
                 if do_baselines:
-                    for b_pred, baseline in zip([majority, rand], ['majority', 'random']):
-                        results.append(dict(model=baseline, pred=b_pred[idx], **base))
-        do_baselines = False
+                    majority, rand = baselines(train, test, key=args.key)
+
+                for idx in range(len(test)):
+                    base = {'lemma': test.iloc[idx]['lemma'],
+                            'year': test.iloc[idx]['year'],
+                            'pos': test.iloc[idx]['pos'],
+                            'true': test.iloc[idx][args.key],
+                            'n_items': n_items,
+                            'iteration': iteration}
+
+                    results.append(
+                        dict(model=model,
+                             pred=pred[idx],
+                             n_subtokens=test.iloc[idx]['n_subtokens'], 
+                             **base))
+
+                    if do_baselines:
+                        for b_pred, baseline in zip([majority, rand], ['majority', 'random']):
+                            results.append(dict(model=baseline, pred=b_pred[idx], **base))
+            do_baselines = False
 
     pd.DataFrame.from_dict(results).to_csv(
         os.path.join(args.output_prefix, 'wsd-results-{}.csv'.format(args.key)))
