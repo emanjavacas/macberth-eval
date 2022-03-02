@@ -1,6 +1,7 @@
 
 
-import pprint
+import os
+import json
 import tqdm
 import random
 
@@ -239,6 +240,35 @@ def evaluate_dev(model, tokenizer, training_data, dev_data, max_batch_size=40, *
     return np.array(trues), np.array(preds), np.array(lemmas)
 
 
+def sample_up_to_n(g, n):
+    if len(g) <= n:
+        return g
+    return g.sample(n=n)
+
+
+def evaluate_df(
+        model, tokenizer, training_data, df, max_batch_size=40, 
+        max_support_per_sense=np.inf, **kwargs):
+    trues, preds, index = [], [], []
+
+    for lemma in tqdm.tqdm(df['lemma'].unique()):
+        support = training_data[training_data['lemma']==lemma].groupby(
+            'depth-1'
+        ).apply(
+            lambda g: sample_up_to_n(g, max_support_per_sense)
+        ).reset_index(drop=True)
+        query = df[df['lemma']==lemma]
+        # check that no queries have senses not present in support set
+        assert np.setdiff1d(query['depth-1'].unique(), support['depth-1'].unique()).size == 0
+        batch = collate(tokenizer, support, query, **kwargs)
+        preds.extend(model.infer(batch, max_batch_size=max_batch_size))
+        trues.extend(batch['query_targets'])
+        index.extend(query.index.to_numpy())
+
+    return np.array(trues), np.array(preds), np.array(index)
+
+
+
 def evaluate_zero(model, tokenizer, zero_data, max_batch_size=40, **kwargs):
     preds, trues, lemmas = [], [], []
     for support, query in iter_lemmas(zero_data):
@@ -275,11 +305,10 @@ def train_model(model, tokenizer, training_data, dev_data, zero_data,
             loss.backward()
             tloss += loss.item()
             steps += 1
-            pbar.update(step)
+            pbar.update()
             if step > 0 and step % update_every == 0:
                 optimizer.step()
                 optimizer.zero_grad()
-                pbar.set_description('Steps={}'.format(step))
                 pbar.set_postfix(Loss=tloss / steps)
 
             # evaluate
@@ -289,10 +318,11 @@ def train_model(model, tokenizer, training_data, dev_data, zero_data,
                 evals += 1
                 model.eval()
                 with torch.no_grad():
-                    evaluate_model(
-                        model, tokenizer,
-                        training_data, dev_data, dev_sampler, zero_data,
-                        device, eval_steps, max_batch_size, evals)
+                    for result in evaluate_model(
+                            model, tokenizer,
+                            training_data, dev_data, dev_sampler, zero_data,
+                            device, eval_steps, max_batch_size, evals):
+                        yield dict(epoch=evals, **result)
                 model.train()
 
 
@@ -309,52 +339,47 @@ def evaluate_model(
             model(batch, max_batch_size=max_batch_size),
             torch.tensor(batch['query_targets']).to(device)
         ).item()
-    print('- dev loss (epoch={}): {:g}'.format(epoch, dev_loss / eval_steps))
-    print()
+    dev_loss /= eval_steps
+    yield dict(metric='dev-loss', score=dev_loss)
     # dev metrics
-    print('- dev metrics (epoch={}):'.format(epoch))
     trues, preds, lemmas = evaluate_dev(
         model, tokenizer, training_data, dev_data,
         max_batch_size=max_batch_size)
     scores = get_metrics(trues, preds, lemmas)
-    pprint.pprint(scores)
-    print()
+    yield dict(metric='dev', **scores)
     # zero-shot
-    print('- zero metrics (epoch={}):'.format(epoch))
     trues, preds, lemmas = evaluate_zero(
         model, tokenizer, zero_data, max_batch_size=max_batch_size)
     scores = get_metrics(trues, preds, lemmas)
-    pprint.pprint(scores)
-    print()
+    yield dict(metric='zero', **scores)
+
 
 
 def evaluate_baseline(model_path, training_data, dev_data, zero_data, max_batch_size, device='cpu'):
     model = Model(model_path, device=device)
     tokenizer = AutoTokenizer.from_pretrained(model_path)
     # dev metrics
-    print('- dev metrics (baseline):')
     trues, preds, lemmas = evaluate_dev(
         model, tokenizer, training_data, dev_data,
         max_batch_size=max_batch_size, sym=None) # don't add [TGT] tokens to baseline
     scores = get_metrics(trues, preds, lemmas)
-    pprint.pprint(scores)
-    print()
+    yield dict(metric='dev', **scores)
     # zero-shot
-    print('- zero metrics (baseline):')
     trues, preds, lemmas = evaluate_zero(
         model, tokenizer, zero_data, max_batch_size=max_batch_size, sym=None)
     scores = get_metrics(trues, preds, lemmas)
-    pprint.pprint(scores)
-    print()
-
+    yield dict(metric='zero', **scores)
 
 
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument('--model-file')
-    parser.add_argument('--train-file')
-    parser.add_argument('--test-file')
+    parser.add_argument('--model-file', required=True)
+    parser.add_argument('--train-file', required=True)
+    parser.add_argument('--test-file', required=True)
+    parser.add_argument('--do-predict', action='store_true')
+    parser.add_argument('--zero-shot-train-file')
+    parser.add_argument('--zero-shot-test-file')
     parser.add_argument('--max-support-size', type=int, default=20)
     parser.add_argument('--max-query-size', type=int, default=20)
     parser.add_argument('--max-batch-size', type=int, default=20)
@@ -365,14 +390,17 @@ if __name__ == '__main__':
     parser.add_argument('--update-every', type=int, default=5)
     parser.add_argument('--device', default='cpu')
     args = parser.parse_args()
-    print(args)
+
+    if args.do_predict and not (os.path.isfile(args.zero_shot_train_file) and
+            os.path.isfile(args.zero_shot_test_file)):
+        raise ValueError
 
     # read data
     # df = pd.read_csv('/home/manjavacasema/code/macberth-eval/splits/oed-quotes-subset-depth-1-train.csv')
-    df = pd.read_csv(args.train_file)
-    zero_lemmas = df['lemma'].value_counts().sample(10, random_state=1001).index
-    zero = df[df['lemma'].isin(zero_lemmas)]
-    df = df[~df['lemma'].isin(zero_lemmas)]
+    source_df = pd.read_csv(args.train_file)
+    zero_lemmas = source_df['lemma'].value_counts().sample(10, random_state=1001).index
+    zero = source_df[source_df['lemma'].isin(zero_lemmas)]
+    df = source_df[~source_df['lemma'].isin(zero_lemmas)]
     # test = pd.read_csv('/home/manjavacasema/code/macberth-eval/splits/oed-quotes-subset-depth-1-test.csv')
     test = pd.read_csv(args.test_file)
     # don't sample from lemmas reserved for zero-shot
@@ -380,27 +408,85 @@ if __name__ == '__main__':
         # 50, random_state=1991).index
         args.dev_lemmas, random_state=1991).index
     dev = test[test['lemma'].isin(dev_lemmas)]
-    print("Loading model")
 
     # tokenizer = AutoTokenizer.from_pretrained('emanjavacas/MacBERTh')
     tokenizer = AutoTokenizer.from_pretrained(args.model_file)
     tokenizer.add_special_tokens({'additional_special_tokens': ['[TGT]']})
 
-    print("Baseline")
     with torch.no_grad():
-        evaluate_baseline(args.model_file, df, dev, zero, 
-            max_batch_size=args.max_batch_size, device=args.device)
+        for result in evaluate_baseline(args.model_file, df, dev, zero, 
+                max_batch_size=args.max_batch_size, device=args.device):
+            result['model'] = 'baseline'
+            print(json.dumps(dict(result, **args.__dict__)))
 
     # model = Model('emanjavacas/MacBERTh')
     model = Model(args.model_file, device=args.device)
     model.bert.resize_token_embeddings(len(tokenizer))
 
-    print("Starting training")
-    train_model(model, tokenizer, df, dev, zero, device=args.device, 
-        max_batch_size=args.max_batch_size, update_every=args.update_every,
-        eval_every=args.eval_every, eval_steps=args.eval_steps,
-        training_steps=args.training_steps, max_support_size=args.max_support_size)
+    for result in train_model(model, tokenizer, df, dev, zero, device=args.device, 
+            max_batch_size=args.max_batch_size, update_every=args.update_every,
+            eval_every=args.eval_every, eval_steps=args.eval_steps,
+            training_steps=args.training_steps, max_support_size=args.max_support_size):
+        print(json.dumps(dict(result, **args.__dict__)))
 
+    if args.do_predict:
+        zero_train = pd.read_csv(args.zero_shot_train_file)
+        zero_test = pd.read_csv(args.zero_shot_test_file)
+        baseline = Model(args.model_file, device=args.device)
+        with torch.no_grad():
+            model.eval()
+            baseline.eval()
+            for max_support in [1, 2, 5, 10, 20, np.inf]:
+                # baseline on zero
+                trues, preds, index = evaluate_df(baseline, tokenizer, zero_train, zero_test,
+                    max_batch_size=args.max_batch_size, max_support_per_sense=max_support, sym=None)
+                output_path = '{}.baseline.zero.predict.max_support={}.json'.format(
+                    os.path.basename(args.model_file), max_support)
+                with open(output_path, 'w+') as f:
+                    json.dump({
+                        'trues': trues.tolist(),
+                        'preds': preds.tolist(), 
+                        'index': index.tolist()}, f)
+                # model on zero
+                trues, preds, index = evaluate_df(model, tokenizer, zero_train, zero_test,
+                    max_batch_size=args.max_batch_size, max_support_per_sense=max_support)
+                output_path = '{}.zero.predict.max_support={}.json'.format(os.path.basename(args.model_file), max_support)
+                with open(output_path, 'w+') as f:
+                    json.dump({
+                        'trues': trues.tolist(), 
+                        'preds': preds.tolist(), 
+                        'index': index.tolist()}, f)
+                # baseline on test
+                trues, preds, index = evaluate_df(baseline, tokenizer, source_df, test,
+                    max_batch_size=args.max_batch_size, max_support_per_sense=max_support, sym=None)
+                output_path = '{}.baseline.predict.max_support={}.json'.format(
+                    os.path.basename(args.model_file), max_support)
+                with open(output_path, 'w+') as f:
+                    json.dump({
+                        'trues': trues.tolist(),
+                        'preds': preds.tolist(), 
+                        'index': index.tolist()}, f)
+                # model on test
+                trues, preds, index = evaluate_df(model, tokenizer, source_df, test,
+                    max_batch_size=args.max_batch_size, max_support_per_sense=max_support)
+                output_path = '{}.predict.max_support={}.json'.format(os.path.basename(args.model_file), max_support)
+                with open(output_path, 'w+') as f:
+                    json.dump({
+                        'trues': trues.tolist(), 
+                        'preds': preds.tolist(), 
+                        'index': index.tolist()}, f)
+
+
+# type(np.array([1, 2,3]).tolist()[0])
+# test = pd.read_csv('./data/wsd/splits/oed-quotes-subset-depth-1-test.zero.csv')
+# train = pd.read_csv('./data/wsd/splits/oed-quotes-subset-depth-1-train.zero.csv')
+# import numpy as np
+
+# for lemma in test['lemma'].unique():
+#     test_lemma = test[test['lemma'] == lemma]
+#     train_lemma = train[train['lemma'] == lemma]
+#     assert np.setdiff1d(test_lemma['depth-1'], train_lemma['depth-1']).size == 0
+#     print(test_lemma['depth-1'].value_counts())
 
 # training_sampler = Sampler(df)
 # stats = []

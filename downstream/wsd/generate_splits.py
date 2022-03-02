@@ -53,12 +53,37 @@ def find_keyword(q, k):
                 return start, end
 
 
+def generate_splits(df_source, targets, key):
+    splits = []
+    for lemma, subset in df_source[df_source['lemma'].isin(targets)].groupby('lemma'):
+        # drop lemmas not in target frequency
+        if lemma not in targets:
+            continue
+        # drop senses where we can't stratify
+        senses = subset[key].value_counts()
+        subset = subset[subset[key].isin(senses[senses >= 2].index)]
+        if len(subset) < 2:
+            continue
+        # drop lemmas with only one sense
+        senses = subset[key].value_counts()
+        if len(senses) == 1:
+            continue
+        train, test = train_test_split(subset.index, stratify=subset[key], test_size=0.5)
+        assert set(df_source.iloc[test][key]).difference(
+            set(df_source.iloc[train][key])) == set()
+        splits.append((train, test))
+
+    return splits
+
+
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument('--input', default='/home/manjavacasema/code/macberth-eval/oed-quotes-subset.tsv')
     args = parser.parse_args()
 
+    # path = '/home/manjavacasema/code/macberth-eval/oed-quotes-subset.tsv'
+    # df_source = pd.read_csv(path, sep='\t')
     df_source = pd.read_csv(args.input, sep='\t')
     # find keywords
     index = []
@@ -86,31 +111,23 @@ if __name__ == '__main__':
     counts = df_source['lemma'].value_counts()
     targets = counts[counts >= 50].index
 
-    # create splits
+    # zero_targets
+    targets, zero_targets = train_test_split(targets, test_size=0.1, random_state=1001)
+
+    *path, ext = args.input.split('.')
+
     for key in depths:
         key = 'depth-{}'.format(key)
-        splits = []
-        for lemma, subset in df_source[df_source['lemma'].isin(targets)].groupby('lemma'):
-            # drop lemmas not in target frequency
-            if lemma not in targets:
-                continue
-            # drop senses where we can't stratify
-            senses = subset[key].value_counts()
-            subset = subset[subset[key].isin(senses[senses >= 2].index)]
-            if len(subset) < 2:
-                continue
-            # drop lemmas with only one sense
-            senses = subset[key].value_counts()
-            if len(senses) == 1:
-                continue
-            train, test = train_test_split(subset.index, stratify=subset[key], test_size=0.5)
-            assert set(df_source.iloc[test][key]).difference(
-                set(df_source.iloc[train][key])) == set()
-            splits.append((train, test))
-
-        *path, ext = args.input.split('.')
+        # training splits
+        splits = generate_splits(df_source, targets, key)
         pd.concat([df_source.iloc[t] for t, _ in splits]).to_csv(
             '.'.join(path) + '-' + key + '-train.csv', index=None)
         pd.concat([df_source.iloc[t] for _, t in splits]).to_csv(
             '.'.join(path) + '-' + key + '-test.csv', index=None)
+        # zero-shot splits
+        splits = generate_splits(df_source, zero_targets, key)
+        pd.concat([df_source.iloc[t] for t, _ in splits]).to_csv(
+            '.'.join(path) + '-' + key + '-train.zero.csv', index=None)
+        pd.concat([df_source.iloc[t] for _, t in splits]).to_csv(
+            '.'.join(path) + '-' + key + '-test.zero.csv', index=None)
 
