@@ -54,7 +54,7 @@ class Sampler:
     def __init__(self, df,
             max_support_size=40, max_query_size=40,
             # set this to a larger value is sense_sampling_strategy is `proportional`
-            sense_support_proportion=0.4,
+            sense_support_proportion=0.5,
             lemma_sampling_strategy='uniform', sense_sampling_strategy='proportional'):
         self.df = df
         self.counts = df['lemma'].value_counts()
@@ -268,7 +268,6 @@ def evaluate_df(
     return np.array(trues), np.array(preds), np.array(index)
 
 
-
 def evaluate_zero(model, tokenizer, zero_data, max_batch_size=40, **kwargs):
     preds, trues, lemmas = [], [], []
     for support, query in iter_lemmas(zero_data):
@@ -354,8 +353,8 @@ def evaluate_model(
     yield dict(metric='zero', **scores)
 
 
-
 def evaluate_baseline(model_path, training_data, dev_data, zero_data, max_batch_size, device='cpu'):
+    # model = Model("emanjavacas/MacBERTh")
     model = Model(model_path, device=device)
     tokenizer = AutoTokenizer.from_pretrained(model_path)
     # dev metrics
@@ -376,14 +375,21 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--model-file', required=True)
     parser.add_argument('--train-file', required=True)
+    parser.add_argument('--max-train-lemmas', type=int, default=1e10,
+        help="Maximum number of lemmas in training set")
+    parser.add_argument('--max-train-per-sense', type=int, default=1e10,
+        help="Maximum number of instances per sense in training set")
     parser.add_argument('--test-file', required=True)
     parser.add_argument('--do-predict', action='store_true')
     parser.add_argument('--zero-shot-train-file')
     parser.add_argument('--zero-shot-test-file')
-    parser.add_argument('--max-support-size', type=int, default=20)
-    parser.add_argument('--max-query-size', type=int, default=20)
+    parser.add_argument('--max-support-size', type=int, default=20,
+        help="Maximum number of instances in the support set")
+    parser.add_argument('--max-query-size', type=int, default=20,
+        help="Maximum number of instances in the query set")
     parser.add_argument('--max-batch-size', type=int, default=20)
-    parser.add_argument('--dev-lemmas', type=int, default=50)
+    parser.add_argument('--dev-lemmas', type=int, default=50,
+        help="Number of lemmas in the development set")
     parser.add_argument('--training-steps', type=int, default=10000)
     parser.add_argument('--eval-every', type=int, default=1000)
     parser.add_argument('--eval-steps', type=int, default=100)
@@ -395,19 +401,41 @@ if __name__ == '__main__':
             os.path.isfile(args.zero_shot_test_file)):
         raise ValueError
 
+    # class Object(object):
+    #     pass
+
+    # args = Object()
+    # args.max_train_lemmas = 100
+    # args.max_train_per_sense = 2
+    # args.dev_lemmas = 50
+
     # read data
-    # df = pd.read_csv('/home/manjavacasema/code/macberth-eval/splits/oed-quotes-subset-depth-1-train.csv')
+    # source_df = pd.read_csv('/home/manjavacasema/code/macberth-eval/data/wsd/splits/oed-quotes-subset-depth-1-train.csv')
     source_df = pd.read_csv(args.train_file)
-    zero_lemmas = source_df['lemma'].value_counts().sample(10, random_state=1001).index
+    # sample zero-shot lemmas for development
+    zero_lemmas = source_df['lemma'].value_counts().sample(50, random_state=1001).index
     zero = source_df[source_df['lemma'].isin(zero_lemmas)]
     df = source_df[~source_df['lemma'].isin(zero_lemmas)]
-    # test = pd.read_csv('/home/manjavacasema/code/macberth-eval/splits/oed-quotes-subset-depth-1-test.csv')
+    # sample training lemmas
+    df_lemmas = df['lemma'].value_counts()
+    if args.max_train_lemmas < len(df_lemmas):
+        df = df[df['lemma'].isin(df_lemmas.sample(args.max_train_lemmas, random_state=1001).index)]
+    # sample instances per sense for training
+    if args.max_train_per_sense:
+        df = df.groupby(
+            ['lemma', 'depth-1']
+        ).apply(
+            lambda g: sample_up_to_n(g, args.max_train_per_sense)
+        ).reset_index(drop=True)
+
+    # test = pd.read_csv('/home/manjavacasema/code/macberth-eval/data/wsd/splits/oed-quotes-subset-depth-1-test.csv')
     test = pd.read_csv(args.test_file)
     # don't sample from lemmas reserved for zero-shot
-    dev_lemmas = test[~test['lemma'].isin(zero_lemmas)]['lemma'].value_counts().sample(
-        # 50, random_state=1991).index
-        args.dev_lemmas, random_state=1991).index
-    dev = test[test['lemma'].isin(dev_lemmas)]
+
+    dev = test[(test['lemma'].isin(df['lemma'].unique())) & (~test['lemma'].isin(zero_lemmas))]
+    if dev['lemma'].unique().size > args.dev_lemmas:
+        dev = dev[dev['lemma'].isin(dev['lemma'].value_counts().sample(
+            args.dev_lemmas, random_state=1991).index)]
 
     # tokenizer = AutoTokenizer.from_pretrained('emanjavacas/MacBERTh')
     tokenizer = AutoTokenizer.from_pretrained(args.model_file)
@@ -423,6 +451,16 @@ if __name__ == '__main__':
     model = Model(args.model_file, device=args.device)
     model.bert.resize_token_embeddings(len(tokenizer))
 
+    # dev_sampler = Sampler(dev)
+    # training_sampler = Sampler(
+    #     df, 
+    #     max_support_size=10, 
+    #     max_query_size=20)
+    # for _ in range(10000):
+    #     training_sampler.sample_lemma()
+    # for _ in range(10000):
+    #     dev_sampler.sample_lemma()
+
     for result in train_model(model, tokenizer, df, dev, zero, device=args.device, 
             max_batch_size=args.max_batch_size, update_every=args.update_every,
             eval_every=args.eval_every, eval_steps=args.eval_steps,
@@ -430,6 +468,11 @@ if __name__ == '__main__':
         print(json.dumps(dict(result, **args.__dict__)))
 
     if args.do_predict:
+        def get_filename(prefix, **kwargs):
+            for key, val in sorted(kwargs.items()):
+                prefix += '.{key}={val}'.format(key=key, val=val)
+            return prefix + ".json"
+
         zero_train = pd.read_csv(args.zero_shot_train_file)
         zero_test = pd.read_csv(args.zero_shot_test_file)
         baseline = Model(args.model_file, device=args.device)
@@ -440,8 +483,10 @@ if __name__ == '__main__':
                 # baseline on zero
                 trues, preds, index = evaluate_df(baseline, tokenizer, zero_train, zero_test,
                     max_batch_size=args.max_batch_size, max_support_per_sense=max_support, sym=None)
-                output_path = '{}.baseline.zero.predict.max_support={}.json'.format(
-                    os.path.basename(args.model_file), max_support)
+                output_path = get_filename(
+                    os.path.basename(args.model_file) + '.baseline.zero.predict',
+                    max_support=max_support, max_train_lemmas=args.max_train_lemmas,
+                    max_train_per_sense=args.max_train_per_sense)
                 with open(output_path, 'w+') as f:
                     json.dump({
                         'trues': trues.tolist(),
@@ -450,7 +495,10 @@ if __name__ == '__main__':
                 # model on zero
                 trues, preds, index = evaluate_df(model, tokenizer, zero_train, zero_test,
                     max_batch_size=args.max_batch_size, max_support_per_sense=max_support)
-                output_path = '{}.zero.predict.max_support={}.json'.format(os.path.basename(args.model_file), max_support)
+                output_path = get_filename(
+                    os.path.basename(args.model_file) + '.zero.predict',
+                    max_support=max_support, max_train_lemmas=args.max_train_lemmas,
+                    max_train_per_sense=args.max_train_per_sense)
                 with open(output_path, 'w+') as f:
                     json.dump({
                         'trues': trues.tolist(), 
@@ -459,8 +507,10 @@ if __name__ == '__main__':
                 # baseline on test
                 trues, preds, index = evaluate_df(baseline, tokenizer, source_df, test,
                     max_batch_size=args.max_batch_size, max_support_per_sense=max_support, sym=None)
-                output_path = '{}.baseline.predict.max_support={}.json'.format(
-                    os.path.basename(args.model_file), max_support)
+                output_path = get_filename(
+                    os.path.basename(args.model_file) + '.baseline.predict',
+                    max_support=max_support, max_train_lemmas=args.max_train_lemmas,
+                    max_train_per_sense=args.max_train_per_sense)
                 with open(output_path, 'w+') as f:
                     json.dump({
                         'trues': trues.tolist(),
@@ -469,7 +519,10 @@ if __name__ == '__main__':
                 # model on test
                 trues, preds, index = evaluate_df(model, tokenizer, source_df, test,
                     max_batch_size=args.max_batch_size, max_support_per_sense=max_support)
-                output_path = '{}.predict.max_support={}.json'.format(os.path.basename(args.model_file), max_support)
+                output_path = get_filename(
+                    os.path.basename(args.model_file) + '.predict',
+                    max_support=max_support, max_train_lemmas=args.max_train_lemmas,
+                    max_train_per_sense=args.max_train_per_sense)
                 with open(output_path, 'w+') as f:
                     json.dump({
                         'trues': trues.tolist(), 

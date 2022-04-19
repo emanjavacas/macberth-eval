@@ -71,6 +71,7 @@ if __name__ == '__main__':
         tokenized_inputs["labels"] = labels
         return tokenized_inputs
 
+    # path = "/home/manjavacasema/data/downstream/gysbert-eval/pos/BaB2.0/splits/BaB2.0-full/test.json"
     dataset = datasets.load_dataset(
         'json', data_files={'test': args.test_path}
     )['test'].map(tokenize_and_align_labels, batched=True)
@@ -79,8 +80,10 @@ if __name__ == '__main__':
     known_tokens = set(tok for sent in train['tokens'] for tok in sent)
 
     collator = DataCollatorForTokenClassification(tokenizer, )
+    to_remove = [c for c in ['id', 'pos_tags', 'source', 'tokens', 'lemma', 'file'] 
+        if c in dataset.column_names]
     data_loader = DataLoader(
-        dataset.remove_columns(['id', 'pos_tags', 'source', 'tokens']),
+        dataset.remove_columns(to_remove),
         batch_size=48, collate_fn=collator)
 
     idx = 0
